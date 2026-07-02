@@ -32,9 +32,13 @@ export const meta = {
   ],
 }
 
-// 成本参考:一个 runner ≈ 15-40k token、一个 judge ≈ 10-15k。3 候选×3 case×2 遍
-// ≈ 600k;earlyStop(默认开)先跑 1 遍,赢家明显即停 ≈ 砍半。粗筛用 2 case×1 遍起步。
-const { candidates, cases, outDir, repeats = 2, earlyStop = true } = args
+// 成本参考:一个 runner ≈ 15-40k token(联网研究类任务可到 100k+)、一个 judge ≈ 10-15k。
+// 3 候选×3 case×2 遍 ≈ 600k;earlyStop(默认开)先跑 1 遍,赢家明显即停 ≈ 砍半。
+// 粗筛用 2 case×1 遍起步。
+// args 有的 harness 版本会字符串化(实测踩过:解构全 undefined),防御性解析兜住;
+// 仍传不进时的退路:复制本模板,把数据内联在脚本顶部再提交。
+const input = typeof args === 'string' ? JSON.parse(args) : args
+const { candidates, cases, outDir, repeats = 2, earlyStop = true } = input || {}
 if (!candidates?.length || !cases?.length || !outDir) {
   throw new Error('args 需要 candidates[], cases[], outDir(绝对路径)')
 }
