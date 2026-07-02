@@ -1,5 +1,7 @@
 # skill-selector
 
+**English** | [简体中文](README.zh-CN.md)
+
 **A skill for choosing skills.** Given a task, decide whether to *reuse* an existing agent skill, *fork* one, *compose* several, or *build* new — with evidence, a security gate, and a token budget you control.
 
 Works with [Claude Code](https://claude.com/claude-code) and any agent runtime that reads `SKILL.md` skills. The five helper scripts are pure Python stdlib — no dependencies, no LLM calls, each independently runnable.
@@ -86,7 +88,7 @@ python3 scripts/trust_scan.py ./candidates/<skill>
 - **Fail closed, visibly.** The scanner reports its blind spots; the fetcher labels rate-limited lookups as *unverified* instead of *dead*; an empty search distinguishes "quota exhausted" from "genuinely nothing".
 - **Institutional memory.** Every decision appends one line to a git-ignored ledger; the next selection greps it before searching anywhere.
 
-Some code comments are in Chinese (the author works bilingually); all user-facing docs are English.
+Some code comments are in Chinese (the author works bilingually); user-facing docs are bilingual — see [README.zh-CN.md](README.zh-CN.md).
 
 ## License
 

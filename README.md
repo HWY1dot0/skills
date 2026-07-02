@@ -1,5 +1,7 @@
 # skills
 
+**English** | [简体中文](README.zh-CN.md)
+
 Agent skills for [Claude Code](https://claude.com/claude-code) and compatible runtimes.
 
 | Skill | What it does |
