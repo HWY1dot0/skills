@@ -1,0 +1,6 @@
+# personal decision ledgers stay local — decisions.example.md is the public template
+**/decisions.md
+
+__pycache__/
+*.pyc
+.DS_Store
