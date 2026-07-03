@@ -1,0 +1,133 @@
+{
+  "skill": "skill-selector",
+  "title": "选 skill：复用 / fork / 组合 / 新建",
+  "source": "~/.claude/skills/skill-selector/SKILL.md",
+  "generated": "2026-07-03",
+  "lang": "zh",
+  "overview": "面对一个会反复做的任务，这条 skill 不靠感觉挑，而是跑一条能复现的评估流水线，最后交出两样东西：一个明确的决策（复用 / fork / 组合 / 新建），和选中或待建的那个 skill。左边七步就是完整链路，从翻自己的决策台账，一直到把结论记回台账。\n\n贯穿始终有一条铁律：一个坏 skill 比没有 skill 更糟，它会在不该触发时触发，把陈旧假设和坑一起拖进来。所以信任门是道硬闸，采用一个外部 skill 的门槛，要比直觉上定得更高。",
+  "globals": {
+    "code_dir": "~/Coding/skills/skill-selector/scripts/",
+    "outputs": ["decisions.md（一行决策台账，.gitignore 保护）", "候选沙箱下载 + 评测卡", "结构对比 HTML（render_compare）"],
+    "guards": [
+      "三档模式：light ~5k / standard 默认 ~30-50k / thorough 实跑 150-700k；升重档必须 AskUserQuestion 带价签征同意，无头环境永不自动升档，降档永远免费",
+      "信任门是硬闸：过不了直接毙，哪怕完美契合也不采用",
+      "决策靠证据不靠描述：description 是营销，实跑结果才算数",
+      "坏 skill 比没 skill 更糟：会误触发、拖进陈旧假设、可能带写给模型的指令",
+      "台账优先：Step 2 先 grep decisions.md，做过的决定直接复用",
+      "全生态零语义搜索：一律多变体查询（2-4 个作者会用的措辞）"
+    ]
+  },
+  "steps": [
+    {
+      "id": 0,
+      "title": "需不需要 skill（gate）",
+      "kind": "llm",
+      "summary": "最便宜的一道闸先过：如果任务只做一次、或者本身很琐碎，那么找 skill、审 skill、接 skill 的开销比活儿本身还大，直接动手就好，别进这条流水线。只有当任务会反复出现、需要非显然的领域知识、或者特别容易踩坑时，才值得为它动用一个 skill。",
+      "commands": [],
+      "inputs": ["任务描述"],
+      "outputs": ["继续 / 停(直接做)"],
+      "failure_modes": [],
+      "source_lines": "19-21"
+    },
+    {
+      "id": 1,
+      "title": "定义任务",
+      "kind": "llm",
+      "summary": "多数『不知道选哪个 skill』其实是『任务没定义清』。钉死四件事并写下来——它们之后直接变成 Step 5 的测试用例和 Step 3 的权重，没有它们『最好』就无从度量。",
+      "commands": [],
+      "inputs": ["任务"],
+      "outputs": ["输入/输出格式", "成功标准(可测)", "频率", "错误代价"],
+      "failure_modes": [],
+      "substeps": [
+        {"title": "四要素", "items": ["输入&输出——进什么、出什么(精确形状)", "成功标准——怎么知道对了，具体到能测", "频率——一次还是反复(回喂 Step 0)", "错误代价——错了会怎样(定信任/质量门多高)"]}
+      ],
+      "source_lines": "41-50"
+    },
+    {
+      "id": 2,
+      "title": "收集候选",
+      "kind": "mixed",
+      "summary": "把『找 skill』变成一张真实候选清单，从最便宜的源往最广的源走。先查自己做过的决定和已装的本地 skill——答案常在那儿；本地强匹配就地复用，别外求。外部拉的一律先过 Step 3 信任门再打分。目标 2-5 个真候选，多了就是在研究不是在决策。",
+      "commands": [
+        "grep -i <keyword> decisions.md",
+        "python3 ~/Coding/skills/skill-selector/scripts/match_local.py \"<capability>\"",
+        "python3 ~/Coding/skills/skill-selector/scripts/fetch_candidates.py \"<变体1>\" \"<变体2>\" <known-name>"
+      ],
+      "inputs": ["Step 1 的任务(重述成 动词+名词+格式)", "已知专名"],
+      "outputs": ["候选沙箱下载 + candidates.json(带真 star / 溯源)"],
+      "failure_modes": [
+        {"case": "一个措辞漏掉顶部候选", "action": "全生态零语义搜索——必给 2-4 个作者式变体"},
+        {"case": "什么都不匹配", "action": "这是有效发现：指向 build"}
+      ],
+      "substeps": [
+        {"title": "分层源(便宜→广)", "items": ["Tier −1：decisions.md 台账 grep", "Tier 0：match_local.py 排 ~/.claude/skills + commands", "注册表/GitHub：fetch_candidates.py 多变体(gh code search 是唯一搜正文的源)", "开放网：<capability> SKILL.md"]}
+      ],
+      "source_lines": "52-63"
+    },
+    {
+      "id": 3,
+      "title": "打分（信任门优先）",
+      "kind": "mixed",
+      "summary": "每个候选都按一组维度打分，但第一维是道硬闸：信任门过不了，后面分数再漂亮也直接毙掉。\n\n先跑自动首闸 trust_scan，它抓四类信号——危险调用、疑似外泄、写给模型的注入式指令、以及空壳假实现，报 FAIL 的在逐条确认清白之前不采用；扫描器判不了的那些感知性问题，再靠人过一遍。这一关过了，才轮到看契合度、编码知识深度、触发准不准这些维度（完整清单见下方子环节）。",
+      "commands": [
+        "python3 ~/Coding/skills/skill-selector/scripts/trust_scan.py <skill_dir>"
+      ],
+      "inputs": ["Step 2 的候选目录"],
+      "outputs": ["信任门 FAIL/WARN/PASS", "打分表(references/scoring-worksheet.md)"],
+      "failure_modes": [
+        {"case": "trust_scan FAIL", "action": "逐条确认是否恶意；确认不了→毙，哪怕完美契合"},
+        {"case": "扫自己的规则文件", "action": "别扫——模式扫描器会命中它存的坏字符串(自指误报)"}
+      ],
+      "substeps": [
+        {"title": "维度", "items": ["信任&安全(GATE)", "契合/覆盖(含边界不只 happy path)", "编码知识深度(价值在坑不在正路)", "触发准确性", "依赖&兼容", "可组合", "维护&出处", "可测性"]}
+      ],
+      "source_lines": "66-78"
+    },
+    {
+      "id": 4,
+      "title": "决策：复用 / fork / 组合 / 新建",
+      "kind": "llm",
+      "summary": "把分数翻成四种结局之一。注意不对称：信任门能把你从『高契合但不可信』推向 build——不可信但方便，输给可信但更费劲。",
+      "commands": [],
+      "inputs": ["Step 3 打分 + 信任门结果"],
+      "outputs": ["reuse / fork / compose / build 之一 + 选中的 skill"],
+      "failure_modes": [],
+      "substeps": [
+        {"title": "四结局", "items": ["Reuse——过闸且高契合，直接用", "Fork——部分契合(40-80%)且可信，复制改", "Compose——各覆盖一片，组合(防触发冲突)", "Build——没好的，或唯一好的过不了信任门(交给 skill-creator)"]}
+      ],
+      "source_lines": "80-89"
+    },
+    {
+      "id": 5,
+      "title": "靠跑定胜负",
+      "kind": "mixed",
+      "summary": "别在纸面收工。用 Step 1 的用例建一个共享测试集，每个存活候选都跑同一批用例。\n\n先 compare_candidates 把确定性可测的聚成并排评测卡(+shape 形态指纹)，再 render_compare 出结构对比图看差异，最后 compare_run 实跑盲评定胜负。一次真跑胜过十次读描述。",
+      "commands": [
+        "python3 ~/Coding/skills/skill-selector/scripts/compare_candidates.py <candidates_dir> --json",
+        "python3 ~/Coding/skills/skill-selector/scripts/render_compare.py <candidates_dir> --open",
+        "Workflow: scripts/compare_run.workflow.js（候选×用例×repeats 隔离 runner + 盲评）"
+      ],
+      "inputs": ["Step 1 成功标准 → 2-5 个测试用例", "存活候选"],
+      "outputs": ["评测卡 + 结构对比 HTML", "pass 矩阵 + flaky 标记"],
+      "failure_modes": [
+        {"case": "静态证据打平", "action": "无头环境别自动升档；交互态 AskUserQuestion 带价签问要不要实跑"},
+        {"case": "全都过不了正确性", "action": "这就论证了 build，并给出新 skill 必须过的用例"}
+      ],
+      "substeps": [
+        {"title": "度量顺序", "items": ["正确性(过不过标准，主导)", "一致性(同例 2-3 次，飘的淘汰)", "触发", "成本/延迟(仅平局 tiebreaker)"]}
+      ],
+      "source_lines": "91-102"
+    },
+    {
+      "id": 6,
+      "title": "记录决策",
+      "kind": "llm",
+      "summary": "往 decisions.md 追一行：日期·任务关键词·裁决(reuse/fork/compose/build+哪个)·一句带测试结果的理由。Step 2 每次搜索前先 grep 这个台账，所以每记一行下次选型都更便宜——多次积累就成了『什么适配什么』的机构记忆。",
+      "commands": [],
+      "inputs": ["Step 4/5 的决策与证据"],
+      "outputs": ["decisions.md 追加一行"],
+      "failure_modes": [],
+      "source_lines": "104-106"
+    }
+  ]
+}
