@@ -38,6 +38,70 @@ FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---", re.DOTALL)
 EXAMPLE_HINT = re.compile(r"example|test|eval|demo|sample|fixture", re.I)
 USAGE_HINT = re.compile(r"^#+\s*(usage|用法|使用|quick\s*start|example)", re.I | re.M)
 
+# ── 形态指纹(shape)——渲染器画"结构差异"用的确定性骨架 ────────────────────
+# 只读 SKILL.md 得来,本地/远程候选对称(都只需一份 md),但这是**文档结构**
+# 不是验证过的执行流;真流程要 /skillviz 下钻。render_compare.py 消费本字段。
+HDR_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t]*#*$", re.M)
+# 编号步骤:关键词+编号,或 1-2 位数字紧跟分隔符(".""))"、"—")。
+# 卡死 4 位年份("2024 Progress")和无分隔裸数字("3 Overview"),它们不是流水线步骤。
+STEP_RE = re.compile(
+    r"^\s*(?:step|phase|part|stage|步骤|步|阶段|环节)\s*\d{1,2}\b"
+    r"|^\s*\d{1,2}\s*[.)、:：\-—]", re.I)
+FENCE_RE = re.compile(r"```")
+CMD_RE = re.compile(
+    r"```(?:bash|sh|shell|zsh|console|python|py|js|javascript|ts)\b"
+    r"|(?<![\w/])python3?\s|(?<![\w/])bash\s|(?<![\w/])curl\s|(?<![\w/])npm\s"
+    r"|(?<![\w/])gh\s|(?:^|\s)scripts/|\b[\w.-]+\.py\b|(?<!\w)--[a-z]{2,}",
+    re.I | re.M)
+GUARD_RE = re.compile(
+    r"pitfall|gotcha|failure\s*mode|caveat|铁律|边界|失败模式|陷阱|注意事项|"
+    r"禁止|\bdo not\b|don'?t\b", re.I)
+
+
+def _shape(md_text: str, n_scripts: int) -> dict:
+    """从 SKILL.md 抽结构指纹:分节数、每节 cli/llm 倾向、整体 lean、有无护栏。"""
+    m = FRONTMATTER_RE.match(md_text)
+    body = md_text[m.end():] if m else md_text
+    hdrs = [(len(mm.group(1)), mm.group(2).strip(), mm.start(), mm.end())
+            for mm in HDR_RE.finditer(body)]
+    has_guards = bool(GUARD_RE.search(body))
+
+    step_hdrs = [h for h in hdrs if STEP_RE.match(h[1])]
+    if len(step_hdrs) >= 2:            # 有显式编号步骤 → 是条流水线
+        picks, structured = step_hdrs, True
+    else:                              # 否则退到 H2(不够再 H3)→ 散文式分节
+        h2 = [h for h in hdrs if h[0] == 2]
+        h3 = [h for h in hdrs if h[0] == 3]
+        picks = h2 if len(h2) >= 2 else (h3 if len(h3) >= 2 else (h2 or h3))
+        structured = False
+
+    CAP = 16
+    nodes = []
+    for lvl, text, hstart, hend in picks:
+        nxt = len(body)                # 节体 = 到下一个同级或更浅标题为止(含其子节)
+        for l2, _t, s2, _e in hdrs:
+            if s2 > hstart and l2 <= lvl:
+                nxt = s2
+                break
+        seg = body[hend:nxt]
+        # cli 步的门槛:有围栏代码块,或 ≥3 个命令信号。散文里零星提到命令行工具不算。
+        cli = bool(FENCE_RE.search(seg)) or len(CMD_RE.findall(seg)) >= 3
+        nodes.append({"title": text[:48], "kind": "cli" if cli else "llm"})
+        if len(nodes) >= CAP:
+            break
+
+    cli_n = sum(1 for n in nodes if n["kind"] == "cli")
+    # lean 纯由指纹条定,和 strip 永远一致;"有脚本"是另一维,交给 has_scripts chip。
+    if not nodes:
+        lean = "cli" if n_scripts else "llm"
+    else:
+        frac = cli_n / len(nodes)
+        lean = "cli" if frac >= 0.55 else ("llm" if frac <= 0.2 else "mixed")
+
+    return {"structured": structured, "n_nodes": len(picks), "nodes": nodes,
+            "truncated": max(0, len(picks) - len(nodes)),  # 指纹条只画前 CAP 个,余数显式标出
+            "lean": lean, "has_scripts": bool(n_scripts), "has_guards": has_guards}
+
 
 def _frontmatter(text: str) -> dict:
     m = FRONTMATTER_RE.match(text)
@@ -76,7 +140,8 @@ def bench(skill_dir: Path, meta: dict | None) -> dict:
     files = [p for p in ts.walk_files(skill_dir) if p.is_file()]
     py = [p for p in files if p.suffix == ".py"]
     md = next((p for p in files if p.name == "SKILL.md"), None)
-    fm = _frontmatter(md.read_text(encoding="utf-8", errors="replace")) if md else {}
+    md_text = md.read_text(encoding="utf-8", errors="replace") if md else ""
+    fm = _frontmatter(md_text)
 
     findings = ts.scan(skill_dir)
     summ = ts.summarize(findings)
@@ -90,7 +155,7 @@ def bench(skill_dir: Path, meta: dict | None) -> dict:
 
     has_examples = any(EXAMPLE_HINT.search(p.name) or
                        any(EXAMPLE_HINT.fullmatch(part) for part in p.parts) for p in files)
-    has_usage = bool(md and USAGE_HINT.search(md.read_text(encoding="utf-8", errors="replace")))
+    has_usage = bool(USAGE_HINT.search(md_text))
 
     return {
         "name": fm.get("name") or skill_dir.name,
@@ -104,6 +169,7 @@ def bench(skill_dir: Path, meta: dict | None) -> dict:
         "deps": deps, "has_examples": has_examples, "has_usage": has_usage,
         # 粗略"薄包装"信号:几乎没真实代码,或代码里空壳占比高
         "thin": (len(py) > 0 and loc < 40) or (loc > 0 and stub >= max(2, nfunc // 2)),
+        "shape": _shape(md_text, len(py)),  # 结构指纹(render_compare.py 消费)
     }
 
 

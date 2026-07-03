@@ -71,6 +71,22 @@ Fill one row per candidate, one column per test case. Mark pass/fail (and a shor
 - **Verdict** options map straight onto Step 4: *adopt* (passes all cases, trustworthy), *fork* (close but misses specific cases you could patch), *compose* (passes a subset that complements another candidate), or *reject*.
 - If no candidate clears the correctness bar, the matrix has just justified **build** — and shows you exactly which cases a new skill must handle.
 
+### Visual comparison (structural differences at a glance)
+
+Before the run-off, when you have 3+ finalists and want the *shape* differences legible rather than buried in prose, render them:
+
+```
+python scripts/render_compare.py <candidates_dir> --open        # builds the cards internally
+python scripts/compare_candidates.py <candidates_dir> --json | python scripts/render_compare.py - --open   # reuse cards you already have
+```
+
+The page has two layers. The **comparison matrix** on top is the decision-grade view — trust gate, real-code-vs-hollow-stub, deps, examples, stars — the same signals that actually drive reuse/fork/compose/build. Below it, each candidate gets a **shape-fingerprint strip**: the SKILL.md's section skeleton with each section colored red (a command/cli step) or gray (a model/llm step), so "A is a 7-step CLI pipeline, B is prose-only, C is mixed" reads in one glance.
+
+Two honesty caveats, both baked into the page:
+
+- The fingerprint is **documentation structure, not verified execution flow** — it's read cheaply from SKILL.md so it stays *symmetric* across local candidates (full source) and remote ones (SKILL.md only), which avoids the trap where a richer local skill merely *looks* more complex because you have more of its code. For the real execution flow of a candidate, click through to its full `/skillviz` flowchart (generate with `/skillviz <name>` where you have the source).
+- Shape difference is a **prior for what to test**, never a verdict. A short prose skill can beat a long CLI pipeline on your actual cases. The strip tells you where two skills diverge structurally; the run (§2–3) still decides.
+
 ## The one rule
 
 Rank on paper to triage; let the run decide. Don't ship a "winner" you selected from a description or a leaderboard without executing it against your own test set.
