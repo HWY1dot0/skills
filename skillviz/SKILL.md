@@ -1,32 +1,37 @@
 ---
-description: "skillviz v3：把一个 command/skill 的执行流程画成可点击的交互式流程图。Claude 读 skill 源文件 + 关联代码，产出结构化 flow JSON，再由固定渲染器出 HTML。用法 /skillviz cpi、/skillviz skill-selector、/skillviz <md路径>。当用户提到 skillviz、画出某个 skill 的流程、skill 可视化、流程图看某个 command 时触发。"
-argument-hint: "<skill 名或 .md 路径> [--no-open]"
+name: skillviz
+description: "把一个 Claude Code 的 skill 或斜杠命令的执行流程，画成一张可点击的交互式 HTML 流程图——步骤怎么串、每步跑什么命令、输入产物、失败模式，并带每步一键交给 /dbg 单跑那一步。当用户想看/可视化/画出/理清某个具体 skill 或命令的流程与步骤时触发，例如「skillviz cpi」「画出 cpi 的流程」「skill 可视化」「流程图看这个 command」「visualize how skill-selector works」「这个命令有哪几步」，或想着手调试某个 skill 的某一步。范围仅限**已存在的 Claude Code skill/命令的执行流程**——不做任意系统/架构/代码的通用示意图（那用 creating-mermaid-diagrams），也不是用散文解释某个 skill 是干嘛的。"
 allowed-tools: ["Bash", "Read", "Write", "Glob", "Grep"]
 ---
 
 # Role: skill 流程图生成器（理解层）
 
-v3 分工：**你负责理解，渲染器负责画图**。你把 skill 的 .md（和它引用的代码）读懂，产出一份 flow JSON——步骤怎么串、每步在做什么（人话）、跑什么命令、产出什么、怎么失败；`render_flow.py` 把它确定性地渲染成流程图 HTML。禁止用正则/脚本去解析 md 结构——理解是你的活。
+分工：**你负责理解，渲染器负责画图**。你把目标 skill 的 .md（和它引用的代码）读懂，产出一份 flow JSON——步骤怎么串、每步在做什么（人话）、跑什么命令、产出什么、怎么失败；`render_flow.py` 把它确定性地渲染成流程图 HTML。禁止用正则/脚本去解析 md 结构——理解是你的活。
+
+本技能激活时，用户通常已经点名（或在上下文里明确所指）一个要可视化的 skill/命令。若没点名，先问清要画哪个，别猜。
+
+> 本技能自包含：渲染器 `render_flow.py` 就在技能目录里；下面命令用的 `~/.claude/skills/skillviz/` 是它装好后的位置（本仓 `skillviz/` 软链进 `~/.claude/skills/`）。flow JSON 产物落技能目录下的 `out/`（已 gitignore）。
 
 ## 步骤
 
 ### 1. 定位源文件
 
-`$ARGUMENTS` 第一个 token 是 skill 名或路径：
+拿到用户所指的 skill 名或路径：
 
-- 路径（含 `/` 或以 `.md` 结尾）→ 直接用
-- 裸名 `<n>` → 依次找 `~/.claude/commands/<n>.md`、`~/.claude/skills/<n>/SKILL.md`
-- 都没有 → 把两个位置的候选列给用户，停
+- 路径（含 `/` 或以 `.md` 结尾）→ 直接用。
+- 裸名 `<n>` → 依次找 `~/.claude/commands/<n>.md`、`~/.claude/skills/<n>/SKILL.md`。
+- 都没有 → 把两个位置的候选列给用户，停。
+- 用户没给名字 → 问要画哪个，别自作主张挑一个。
 
 ### 2. 读懂它
 
 - 通读 md 全文。
-- 若正文引用了 `~/Coding/` 下的代码目录（如 cpi 的 `~/Coding/cpi_analyzer/`），读关键代码文件，拿到**真实的**数据清单（系列 ID、权重、桶定义等顶层常量）和 CLI 子命令——这些进 substeps 的 items，回答"这步到底 fetch/算了哪些东西"。
+- 若正文引用了本机代码目录（如某分析工具的 `~/Coding/<tool>/`），读关键代码文件，拿到**真实的**数据清单（系列 ID、权重、桶定义等顶层常量）和 CLI 子命令——这些进 substeps 的 items，回答"这步到底 fetch/算了哪些东西"。
 - 纯散文 skill（无代码、无编号步骤）也要拆：按它实际的执行逻辑切成 3-8 个阶段，别硬造。
 
 ### 3. 写 flow JSON
 
-写到 `~/Coding/Tools/skillviz/out/<n>.flow.json`。Schema（渲染器契约，字段名精确匹配）：
+写到 `~/.claude/skills/skillviz/out/<n>.flow.json`。Schema（渲染器契约，字段名精确匹配）：
 
 ```json
 {
@@ -38,8 +43,8 @@ v3 分工：**你负责理解，渲染器负责画图**。你把 skill 的 .md�
   "overview": "一两句人话：这条 skill 从什么输入走到什么产出，核心骨架是什么",
   "globals": {
     "code_dir": "~/Coding/cpi_analyzer/",
-    "outputs": ["30 Macro/US Eco/CPI YYYYMMDD.md", "assets/YYYY-MM/*.png"],
-    "guards": ["不在 8:30 ET 发布前跑", "不引卖方研报", "…（边界/铁律，精选 3-8 条）"]
+    "outputs": ["产物路径 A", "产物路径 B"],
+    "guards": ["边界/铁律，精选 3-8 条"]
   },
   "steps": [
     {
@@ -76,17 +81,18 @@ v3 分工：**你负责理解，渲染器负责画图**。你把 skill 的 .md�
 ### 4. 渲染 + 打开
 
 ```bash
-python3 ~/Coding/Tools/skillviz/render_flow.py ~/Coding/Tools/skillviz/out/<n>.flow.json --open
+python3 ~/.claude/skills/skillviz/render_flow.py ~/.claude/skills/skillviz/out/<n>.flow.json --open
 ```
 
-`$ARGUMENTS` 带 `--no-open` 则去掉 `--open`。渲染器退出非零 = JSON 不合 schema，按报错修 JSON 重跑。
+用户说了「别打开 / 就出文件 / --no-open」则去掉 `--open`。渲染器退出非零 = JSON 不合 schema，按报错修 JSON 重跑。
 
 ### 5. 完成报告
 
-报：flow.json 与 html 路径、步数、每步一行（id + 标题 + kind）、读了哪些代码文件。提醒：图上每步的「复制调试命令」按钮 → 粘到任意会话即 `/dbg <skill> <id>` 单跑那一步。
+报：flow.json 与 html 路径、步数、每步一行（id + 标题 + kind）、读了哪些代码文件。提醒：图上每步的「复制调试命令」按钮 → 粘到任意会话即 `/dbg <skill> <id>` 单跑那一步（需装配套的 `/dbg` 命令，见 `commands/dbg.md`）。
 
 ## 注意
 
-- flow JSON 是 `/dbg` 的数据源——它的质量直接决定定点调试的质量。
-- skill 更新后重跑 `/skillviz <n>` 即可刷新（JSON+HTML 原地覆盖）。
+- flow JSON 是 `/dbg` 的数据源——它的质量直接决定定点调试的质量；产物路径固定在 `~/.claude/skills/skillviz/out/`，`/dbg` 就去那儿读。
+- skill 更新后，让本技能对它重跑一遍即可刷新（JSON+HTML 原地覆盖）。
 - 渲染器/schema 改动要双向同步：`render_flow.py` ↔ 本文件 schema 段。
+- 调试单步是 `/dbg` 命令的活（它读本技能产的 flow JSON），本技能只管产图；`/dbg` 是本技能的配套命令，装法见 README。

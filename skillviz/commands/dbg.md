@@ -10,7 +10,7 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
 
 ## 步骤
 
-1. **Read** `~/Coding/Tools/skillviz/out/<skill>.flow.json`（不存在 → 告诉用户先跑 `/skillviz <skill>` 生成，停）。
+1. **Read** `~/.claude/skills/skillviz/out/<skill>.flow.json`（不存在 → 告诉用户先用 **skillviz 技能**生成 `<skill>` 的流程图，停）。
 
 2. **有没有第二个 token（节点引用）？**
 
@@ -35,5 +35,5 @@ allowed-tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
 ## 注意
 
 - 这一步在**当前会话**里执行；若要干净环境隔离，提醒用户可先 `/clear` 再 `/dbg`。
-- flow JSON 可能比 skill 的 .md 旧——若明显对不上（步骤号/命令变了），提醒用户重跑 `/skillviz <skill>` 刷新，别按旧图硬跑。
-- 这是 skillviz v3（`~/Coding/Tools/skillviz/`）的执行入口。想在图上定位再调，用 `/skillviz` 出的 HTML；不想切浏览器，直接 `/dbg <skill>` 在会话里看菜单选。图上每步有两颗按钮：「复制 /dbg <skill> <id>」（直达那一步）和「复制 /dbg <skill>」（回会话出菜单再选）。
+- flow JSON 可能比 skill 的 .md 旧——若明显对不上（步骤号/命令变了），提醒用户让 **skillviz 技能**重新生成 `<skill>` 刷新，别按旧图硬跑。
+- 这是 **skillviz 技能**（`~/.claude/skills/skillviz/`）的调试配套。想在图上定位再调，用 skillviz 出的 HTML；不想切浏览器，直接 `/dbg <skill>` 在会话里看菜单选。图上每步有两颗按钮：「复制 /dbg <skill> <id>」（直达那一步）和「复制 /dbg <skill>」（回会话出菜单再选）。
